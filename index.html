@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>911: Dispatcher</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Disclaimer Modal -->
+    <div id="disclaimerModal" class="disclaimer-modal">
+        <div class="disclaimer-content">
+            <h2>⚠️ CONTENT WARNING ⚠️</h2>
+            <p>This game contains simulated emergency scenarios including:</p>
+            <ul>
+                <li>Medical emergencies</li>
+                <li>Crime situations</li>
+                <li>Fire and accident scenarios</li>
+                <li>Mature themes</li>
+            </ul>
+            <p class="warning-text">User discretion is advised.</p>
+            <p class="age-warning">Not recommended for users under 10 years of age.</p>
+            <button class="disclaimer-btn" onclick="acceptDisclaimer()">I UNDERSTAND - CONTINUE</button>
+        </div>
+    </div>
+
+    <!-- Loading Screen -->
+    <div id="loadingScreen" class="loading-screen" style="display: none;">
+        <div class="loading-content">
+            <h1 class="loading-title">911: DISPATCHER</h1>
+            <div class="loading-text">INITIALIZING DISPATCH SYSTEM...</div>
+            <div class="loading-bar-container">
+                <div class="loading-bar" id="loadingBar"></div>
+            </div>
+            <div class="loading-percentage" id="loadingPercentage">0%</div>
+            <div class="loading-status" id="loadingStatus">Connecting to emergency database...</div>
+        </div>
+    </div>
+
+    <!-- Main Menu -->
+    <div id="mainMenu" style="display: none; opacity: 0;">
+        <video class="police-lights-video" autoplay loop muted playsinline>
+            <source src="Flashing Police Lights - Stock Video _ Motion Array - Opera 2025-11-08 12-14-03 (online-video-cutter.com).mp4" type="video/mp4">
+        </video>
+        <img src="logo.png" alt="911: Dispatcher Logo">
+        <button class="menu-btn" onclick="startGame()">Start Game</button>
+        <button class="menu-btn" onclick="showSaveLoadMenu('load')">Load Game</button>
+        <audio id="menuMusic" loop volume="0.5">
+            <source src="Background Music.mp3" type="audio/mpeg">
+        </audio>
+    </div>
+
+    <!-- Game Screen -->
+    <div id="gameScreen">
+        <!-- HUD -->
+        <div class="hud">
+            <div class="hud-item score">
+                Score: <span id="scoreValue">0</span>
+            </div>
+            <div class="hud-item calls-completed">
+                Calls: <span id="callsValue">0</span>
+            </div>
+            <div class="hud-item accuracy">
+                Accuracy: <span id="accuracyValue">100</span>%
+            </div>
+            <button class="hud-btn" onclick="showSaveLoadMenu('save')" title="Save Game">💾</button>
+        </div>
+
+        <!-- Dispatcher Desk -->
+        <div class="dispatcher-desk">
+            <!-- Phone Section -->
+            <div class="phone-section">
+                <div class="phone" id="phone" onclick="pickUpPhone()">
+                    <div class="phone-icon">📞</div>
+                    <div class="phone-text">Click to Answer</div>
+                </div>
+                <div class="call-status" id="callStatus">
+                    Waiting for incoming call...
+                </div>
+            </div>
+
+            <!-- Computer Section -->
+            <div class="computer-section">
+                <div class="computer-screen">
+                    <h2 style="color: #ffff00; margin-bottom: 20px;">📋 CALL DETAILS FORM</h2>
+                    
+                    <div class="call-info" id="callInfo">
+                        <div class="caller-dialogue" id="callerDialogue">_</div>
+                        
+                        <div id="questionButtons" class="question-buttons" style="display: none;">
+                            <button class="question-btn" onclick="askQuestion('name')">📝 What is your name?</button>
+                            <button class="question-btn" onclick="askQuestion('location')">📍 Where are you?</button>
+                            <button class="question-btn" onclick="askQuestion('emergency')">🚨 What's the emergency?</button>
+                            <button class="question-btn" onclick="askQuestion('reassure')">💬 Stay calm, help is coming</button>
+                        </div>
+                        
+                        <div class="info-field">
+                            <div class="info-label">Caller Name</div>
+                            <input type="text" id="callerName" placeholder="Enter caller's name..." />
+                        </div>
+
+                        <div class="info-field">
+                            <div class="info-label">Location / Address</div>
+                            <input type="text" id="location" placeholder="Enter location or address..." />
+                        </div>
+
+                        <div class="info-field">
+                            <div class="info-label">Emergency Type</div>
+                            <input type="text" id="emergencyType" placeholder="Enter type of emergency..." />
+                        </div>
+
+                        <div class="info-field">
+                            <div class="info-label">Additional Notes</div>
+                            <textarea id="notes" placeholder="Type any important details here..."></textarea>
+                        </div>
+                    </div>
+
+                    <div id="noCallMessage" style="text-align: center; padding: 50px; color: #888888;">
+                        <div style="font-size: 64px; margin-bottom: 20px;">📞</div>
+                        <div style="font-size: 24px;">NO ACTIVE CALL</div>
+                        <div style="font-size: 14px; margin-top: 10px;">Answer the phone to receive emergency calls</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dispatch Section -->
+            <div class="dispatch-section">
+                <div class="dispatch-title">🚨 Dispatch Units</div>
+                
+                <button class="unit-btn police-btn" id="policeBtn" onclick="selectUnit('police')" disabled>
+                    🚔 Police Department
+                </button>
+
+                <button class="unit-btn fire-btn" id="fireBtn" onclick="selectUnit('fire')" disabled>
+                    🚒 Fire Department
+                </button>
+
+                <button class="unit-btn ambulance-btn" id="ambulanceBtn" onclick="selectUnit('ambulance')" disabled>
+                    🚑 Ambulance
+                </button>
+
+                <button class="unit-btn multiple-btn" id="multipleBtn" onclick="selectUnit('multiple')" disabled>
+                    🚨 Multiple Units
+                </button>
+
+                <button class="unit-btn submit-btn" id="submitBtn" onclick="submitDispatch()" disabled>
+                    ✅ Submit & Close Call
+                </button>
+
+                <div class="feedback" id="feedback"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Game Over Screen -->
+    <div id="gameOverScreen">
+        <div class="game-over-title">Shift Complete!</div>
+        <div class="final-stats">
+            <div class="stat-item">
+                Total Score: <span class="stat-value" id="finalScore">0</span>
+            </div>
+            <div class="stat-item">
+                Calls Handled: <span class="stat-value" id="finalCalls">0</span>
+            </div>
+            <div class="stat-item">
+                Final Accuracy: <span class="stat-value" id="finalAccuracy">0</span>%
+            </div>
+        </div>
+        <button class="menu-btn" onclick="restartGame()">Play Again</button>
+        <button class="menu-btn" onclick="backToMenu()">Main Menu</button>
+    </div>
+
+    <!-- Save/Load Menu -->
+    <div id="saveLoadMenu" class="save-load-menu" style="display: none;">
+        <div class="save-load-content">
+            <div class="save-load-header">
+                <h2 id="saveLoadTitle">LOAD GAME</h2>
+                <button class="close-btn" onclick="closeSaveLoadMenu()">✕</button>
+            </div>
+            
+            <div class="save-name-container" id="saveNameContainer" style="display: none;">
+                <input type="text" id="saveNameInput" placeholder="Enter save name..." maxlength="30" />
+            </div>
+            
+            <div class="saves-container">
+                <div id="savesList" class="saves-list">
+                    <div class="no-saves">Loading saves...</div>
+                </div>
+            </div>
+            
+            <div class="save-load-footer">
+                <button class="menu-btn" id="saveGameBtn" onclick="performSave()" style="display: none;">💾 Save Game</button>
+                <button class="menu-btn secondary-btn" onclick="openSavesFolder()">📁 Open Saves Folder</button>
+                <button class="menu-btn secondary-btn" onclick="closeSaveLoadMenu()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="game.js"></script>
+</body>
+</html>
+

@@ -1,0 +1,56 @@
+{
+  "name": "911-dispatcher",
+  "version": "1.0.0",
+  "description": "911 Dispatcher Game - Emergency Call Simulation",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win",
+    "build-all": "electron-builder -mwl"
+  },
+  "keywords": [
+    "game",
+    "911",
+    "dispatcher",
+    "emergency",
+    "simulation"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1"
+  },
+  "build": {
+    "appId": "com.911dispatcher.game",
+    "productName": "911 Dispatcher",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "**/*",
+      "!**/*.md",
+      "!dist/**/*",
+      "!node_modules/**/*",
+      "!.git/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "icon.jpg"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}
+
