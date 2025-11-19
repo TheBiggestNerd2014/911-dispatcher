@@ -20,6 +20,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Open saves folder in file explorer
     openSavesFolder: () => ipcRenderer.invoke('open-saves-folder'),
     
+    // Quit the application
+    quitApp: () => ipcRenderer.send('quit-app'),
+    
     // Check if running in Electron
     isElectron: true
 });

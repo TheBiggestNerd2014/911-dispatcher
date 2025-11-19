@@ -8,6 +8,36 @@ let selectedUnits = [];
 let gameActive = false;
 let typingInProgress = false;
 
+// Typewriter sound effect
+const typewriterSound = new Audio('typewriter-key-1.mp3');
+typewriterSound.volume = 0.3; // Set volume to 30% so it's not too loud
+
+// Telephone ring sound effect
+const phoneRingSound = new Audio('telephone-ring-04.mp3');
+phoneRingSound.volume = 0.4;
+phoneRingSound.loop = true; // Loop the ring until answered
+
+// Dispatcher greeting sound
+const dispatcherGreeting = new Audio('911-emergency.mp3');
+dispatcherGreeting.volume = 0.5;
+
+// Timing tracking
+let phoneRingStartTime = null;
+let questionAskedTime = null;
+let isPhoneRinging = false;
+let pickupPenaltyInterval = null;
+
+// Settings
+let settings = {
+    musicVolume: 50,
+    sfxVolume: 50,
+    typingSpeed: 80,
+    skipLoading: false
+};
+
+// Track loading interval for skip functionality
+let currentLoadingInterval = null;
+
 // Name Generation Data (Multi-cultural)
 const firstNames = [
     // English/Western
@@ -522,17 +552,52 @@ function scheduleNextCall() {
 function startRinging() {
     const phone = document.getElementById('phone');
     phone.classList.add('ringing');
+    isPhoneRinging = true;
+    phoneRingStartTime = Date.now();
     document.getElementById('callStatus').textContent = '📞 INCOMING CALL - Answer Now!';
+    
+    // Play phone ring sound
+    phoneRingSound.currentTime = 0;
+    phoneRingSound.play().catch(e => {
+        console.log('Phone ring audio play prevented:', e);
+    });
+    
+    // Start penalty timer - deduct points after 3 seconds and every second after
+    pickupPenaltyInterval = setInterval(() => {
+        const pickupTime = (Date.now() - phoneRingStartTime) / 1000;
+        
+        if (pickupTime > 3) {
+            // Deduct 5 points per second after 3 seconds
+            score = Math.max(0, score - 5);
+            updateHUD();
+        }
+    }, 1000); // Check every second
 }
 
 // Typing animation function
-async function typeText(element, text, speed = 30) {
+async function typeText(element, text, speed = 80, clearFirst = true) {
     typingInProgress = true;
-    element.textContent = '';
+    
+    if (clearFirst) {
+        element.textContent = '';
+    }
     
     for (let i = 0; i < text.length; i++) {
-        element.textContent += text.charAt(i);
-        await new Promise(resolve => setTimeout(resolve, speed));
+        const char = text.charAt(i);
+        element.textContent += char;
+        playTypewriterSound(); // Play sound for each character
+        
+        // Check if this is the end of a sentence
+        const isSentenceEnd = (char === '.' || char === '!' || char === '?') && 
+                              (i === text.length - 1 || text.charAt(i + 1) === ' ');
+        
+        if (isSentenceEnd) {
+            // Longer pause after sentence
+            await new Promise(resolve => setTimeout(resolve, 500));
+        } else {
+            // Use the settings typing speed
+            await new Promise(resolve => setTimeout(resolve, speed));
+        }
     }
     
     typingInProgress = false;
@@ -541,6 +606,22 @@ async function typeText(element, text, speed = 30) {
 // Ask follow-up question
 async function askQuestion(type) {
     if (!currentCall || typingInProgress) return;
+    
+    // Calculate response time penalty (except for reassure option)
+    if (type !== 'reassure' && questionAskedTime) {
+        const responseTime = (Date.now() - questionAskedTime) / 1000; // in seconds
+        
+        if (responseTime > 10) {
+            // Penalize for taking more than 10 seconds to respond
+            const responsePenalty = Math.floor((responseTime - 10) * 3); // -3 points per second after 10s
+            score = Math.max(0, score - responsePenalty); // Don't go below 0
+            
+            if (responsePenalty > 0) {
+                showNotification(`-${responsePenalty} points for slow response!`, 'error');
+                updateHUD();
+            }
+        }
+    }
     
     // Disable all question buttons during response
     const buttons = document.querySelectorAll('.question-btn');
@@ -578,62 +659,119 @@ async function askQuestion(type) {
     
     // Type only the response character by character
     for (let i = 0; i < response.length; i++) {
-        dialogueElement.textContent += response.charAt(i);
-        await new Promise(resolve => setTimeout(resolve, 30));
+        const char = response.charAt(i);
+        dialogueElement.textContent += char;
+        playTypewriterSound(); // Play sound for each character
+        
+        // Check if this is the end of a sentence
+        const isSentenceEnd = (char === '.' || char === '!' || char === '?') && 
+                              (i === response.length - 1 || response.charAt(i + 1) === ' ');
+        
+        if (isSentenceEnd) {
+            // Longer pause after sentence
+            await new Promise(resolve => setTimeout(resolve, 500));
+        } else {
+            // Normal typing speed
+            await new Promise(resolve => setTimeout(resolve, 80));
+        }
     }
     
     typingInProgress = false;
     
     // Re-enable question buttons
     buttons.forEach(btn => btn.disabled = false);
+    
+    // Reset response time tracking (except for reassure, which doesn't require follow-up)
+    if (type !== 'reassure') {
+        questionAskedTime = Date.now();
+    }
 }
 
-function pickUpPhone() {
-    if (!currentCall && !typingInProgress) {
-        const phone = document.getElementById('phone');
-        phone.classList.remove('ringing');
-        
-        // Generate random call with dynamic names and locations
-        currentCall = generateCall();
-        selectedUnits = [];
-        
-        // Display call information
-        document.getElementById('noCallMessage').classList.add('hidden');
-        document.getElementById('callInfo').classList.add('active');
-        
-        // Clear input fields
-        document.getElementById('callerName').value = '';
-        document.getElementById('location').value = '';
-        document.getElementById('emergencyType').value = '';
-        document.getElementById('notes').value = '';
-        
-        // Disable dispatch buttons until typing is complete
-        document.getElementById('policeBtn').disabled = true;
-        document.getElementById('fireBtn').disabled = true;
-        document.getElementById('ambulanceBtn').disabled = true;
-        document.getElementById('multipleBtn').disabled = true;
-        
-        // Update status
-        document.getElementById('callStatus').innerHTML = '✅ Call Active<br>Listen and take notes';
-        
-        // Hide feedback
-        document.getElementById('feedback').style.display = 'none';
-        document.getElementById('feedback').classList.remove('correct', 'incorrect');
-        
-        // Start typing animation
-        const dialogueElement = document.getElementById('callerDialogue');
-        typeText(dialogueElement, `"${currentCall.dialogue}"`).then(() => {
-            // Show question buttons
-            document.getElementById('questionButtons').style.display = 'grid';
-            
-            // Enable dispatch buttons after dialogue is complete
-            document.getElementById('policeBtn').disabled = false;
-            document.getElementById('fireBtn').disabled = false;
-            document.getElementById('ambulanceBtn').disabled = false;
-            document.getElementById('multipleBtn').disabled = false;
-            document.getElementById('callStatus').innerHTML = '✅ Call Active<br>Ask questions and fill form';
-        });
+async function pickUpPhone() {
+    // Don't allow pickup if phone isn't ringing
+    if (!isPhoneRinging || currentCall || typingInProgress) {
+        return;
     }
+    
+    const phone = document.getElementById('phone');
+    phone.classList.remove('ringing');
+    isPhoneRinging = false;
+    
+    // Stop the penalty timer
+    if (pickupPenaltyInterval) {
+        clearInterval(pickupPenaltyInterval);
+        pickupPenaltyInterval = null;
+    }
+    
+    // Calculate total time and show notification if it was slow
+    const pickupTime = (Date.now() - phoneRingStartTime) / 1000;
+    
+    // Stop phone ring sound
+    phoneRingSound.pause();
+    phoneRingSound.currentTime = 0;
+    
+    // Generate random call with dynamic names and locations
+    currentCall = generateCall();
+    selectedUnits = [];
+    
+    // Display call information
+    document.getElementById('noCallMessage').classList.add('hidden');
+    document.getElementById('callInfo').classList.add('active');
+    
+    // Clear input fields
+    document.getElementById('callerName').value = '';
+    document.getElementById('location').value = '';
+    document.getElementById('emergencyType').value = '';
+    document.getElementById('notes').value = '';
+    
+    // Disable dispatch buttons until typing is complete
+    document.getElementById('policeBtn').disabled = true;
+    document.getElementById('fireBtn').disabled = true;
+    document.getElementById('ambulanceBtn').disabled = true;
+    document.getElementById('multipleBtn').disabled = true;
+    
+    // Update status
+    document.getElementById('callStatus').innerHTML = '✅ Call Active<br>Listen and take notes';
+    
+    // Hide feedback
+    document.getElementById('feedback').style.display = 'none';
+    document.getElementById('feedback').classList.remove('correct', 'incorrect');
+    
+    // Show notification if pickup was slow
+    if (pickupTime > 3) {
+        showNotification(`Slow pickup! Points deducted!`, 'error');
+    }
+    
+    updateHUD();
+    
+    // Start with dispatcher greeting
+    const dialogueElement = document.getElementById('callerDialogue');
+    
+    // Play dispatcher greeting audio
+    dispatcherGreeting.currentTime = 0;
+    dispatcherGreeting.play().catch(e => {
+        console.log('Dispatcher greeting audio play prevented:', e);
+    });
+    
+    // Show dispatcher greeting instantly (no typing)
+    dialogueElement.textContent = '[You: 911, what is your emergency?]\n\n';
+    
+    // Wait a moment before caller responds
+    await new Promise(resolve => setTimeout(resolve, 800));
+    
+    // Type caller's dialogue (append, don't clear)
+    await typeText(dialogueElement, `"${currentCall.dialogue}"`, settings.typingSpeed, false);
+    
+    // Show question buttons and enable dispatch
+    document.getElementById('questionButtons').style.display = 'grid';
+    document.getElementById('policeBtn').disabled = false;
+    document.getElementById('fireBtn').disabled = false;
+    document.getElementById('ambulanceBtn').disabled = false;
+    document.getElementById('multipleBtn').disabled = false;
+    document.getElementById('callStatus').innerHTML = '✅ Call Active<br>Ask questions and fill form';
+    
+    // Start tracking response time
+    questionAskedTime = Date.now();
 }
 
 function selectUnit(unit) {
@@ -824,7 +962,7 @@ function submitDispatch() {
         score += 100;
         feedbackText = '✅ CORRECT DISPATCH!\n';
     } else {
-        score -= 25;
+        score = Math.max(0, score - 25); // Don't go below 0
         feedbackText = `❌ WRONG UNITS! Needed: ${currentCall.correctUnits.join(' or ').toUpperCase()}\n`;
     }
     
@@ -869,6 +1007,15 @@ function closeCall() {
     currentCall = null;
     selectedUnits = [];
     typingInProgress = false;
+    isPhoneRinging = false;
+    phoneRingStartTime = null;
+    questionAskedTime = null;
+    
+    // Clear penalty timer if it's still running
+    if (pickupPenaltyInterval) {
+        clearInterval(pickupPenaltyInterval);
+        pickupPenaltyInterval = null;
+    }
     
     document.getElementById('callInfo').classList.remove('active');
     document.getElementById('noCallMessage').classList.remove('hidden');
@@ -937,11 +1084,31 @@ function backToMenu() {
     // Restart menu music
     const menuMusic = document.getElementById('menuMusic');
     if (menuMusic) {
-        menuMusic.volume = 0.5; // Reset volume
+        menuMusic.volume = (settings.musicVolume / 100); // Use settings volume
         menuMusic.currentTime = 0; // Start from beginning
         menuMusic.play().then(() => {
             console.log('Menu music restarted');
         }).catch(e => console.log('Audio play failed:', e));
+    }
+}
+
+// Quit game function
+async function quitGame() {
+    const confirmed = await showCustomConfirm('Are you sure you want to quit?', '🚪');
+    
+    if (confirmed) {
+        if (isElectron && window.electronAPI && window.electronAPI.quitApp) {
+            // Close Electron app
+            window.electronAPI.quitApp();
+        } else {
+            // In browser, close the tab/window
+            window.close();
+            
+            // If window.close() doesn't work (some browsers block it), show message
+            setTimeout(() => {
+                showCustomAlert('Please close this tab manually', 'ℹ️');
+            }, 100);
+        }
     }
 }
 
@@ -961,18 +1128,24 @@ function acceptDisclaimer() {
             console.log('Music started playing after disclaimer acceptance!');
             // Gradually fade in during loading screen (to quiet background level)
             setTimeout(() => {
-                fadeInMusic(menuMusic, 0.15, 2000);
+                fadeInMusic(menuMusic, 0.15 * (settings.musicVolume / 50), 2000);
             }, 500);
         }).catch(e => {
             console.error('Music play failed:', e);
         });
     }
     
-    // Wait for fade, then show loading screen
+    // Wait for fade, then show loading screen or skip
     setTimeout(() => {
         disclaimerModal.style.display = 'none';
-        loadingScreen.style.display = 'flex';
-        startLoadingSequence();
+        
+        if (settings.skipLoading) {
+            // Skip directly to menu
+            skipLoading();
+        } else {
+            loadingScreen.style.display = 'flex';
+            startLoadingSequence();
+        }
     }, 1000);
 }
 
@@ -1023,7 +1196,7 @@ function startLoadingSequence() {
     
     let currentSegment = 0;
     
-    const loadingInterval = setInterval(() => {
+    currentLoadingInterval = setInterval(() => {
         elapsedTime += updateInterval;
         
         // Random stutters (pauses)
@@ -1063,7 +1236,8 @@ function startLoadingSequence() {
         
         if (progress >= 100) {
             progress = 100;
-            clearInterval(loadingInterval);
+            clearInterval(currentLoadingInterval);
+            currentLoadingInterval = null;
             
             // Fade out loading screen
             setTimeout(() => {
@@ -1086,7 +1260,7 @@ function startLoadingSequence() {
                         
                         // Fade in music to full volume over 3 seconds
                         if (menuMusic) {
-                            fadeInMusic(menuMusic, 0.5, 3000);
+                            fadeInMusic(menuMusic, (settings.musicVolume / 100), 3000);
                         }
                     }, 1500);
                 }, 500);
@@ -1110,45 +1284,53 @@ function startLoadingSequence() {
 // Fade in music gradually (smoothed to prevent audio stuttering)
 function fadeInMusic(audioElement, targetVolume, duration) {
     const startVolume = audioElement.volume;
-    const steps = 60; // Fixed number of steps for smoother transition
-    const volumeStep = (targetVolume - startVolume) / steps;
-    const stepTime = duration / steps;
+    const startTime = Date.now();
     
-    let currentStep = 0;
-    
-    const fadeInterval = setInterval(() => {
-        currentStep++;
-        if (currentStep <= steps) {
-            const newVolume = startVolume + (volumeStep * currentStep);
-            audioElement.volume = Math.max(0, Math.min(newVolume, targetVolume));
+    function fade() {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        
+        // Use ease-in curve for smoother fade
+        const easeProgress = Math.pow(progress, 2);
+        const newVolume = startVolume + (targetVolume - startVolume) * easeProgress;
+        
+        audioElement.volume = Math.max(0, Math.min(newVolume, targetVolume));
+        
+        if (progress < 1) {
+            requestAnimationFrame(fade);
         } else {
-            clearInterval(fadeInterval);
             audioElement.volume = targetVolume;
         }
-    }, stepTime);
+    }
+    
+    requestAnimationFrame(fade);
 }
 
 // Fade out music gradually (smoothed to prevent audio stuttering)
 function fadeOutMusic(audioElement, duration) {
     const startVolume = audioElement.volume;
-    const steps = 40; // Fixed number of steps
-    const volumeStep = startVolume / steps;
-    const stepTime = duration / steps;
+    const startTime = Date.now();
     
-    let currentStep = 0;
-    
-    const fadeInterval = setInterval(() => {
-        currentStep++;
-        if (currentStep <= steps) {
-            const newVolume = startVolume - (volumeStep * currentStep);
-            audioElement.volume = Math.max(0, Math.min(newVolume, 1));
+    function fade() {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        
+        // Use ease-out curve for smoother fade
+        const easeProgress = 1 - Math.pow(1 - progress, 2);
+        const newVolume = startVolume * (1 - easeProgress);
+        
+        audioElement.volume = Math.max(0, newVolume);
+        
+        if (progress < 1) {
+            requestAnimationFrame(fade);
         } else {
-            clearInterval(fadeInterval);
             audioElement.volume = 0;
             audioElement.pause();
             audioElement.currentTime = 0;
         }
-    }, stepTime);
+    }
+    
+    requestAnimationFrame(fade);
 }
 
 // ============================================
@@ -1161,7 +1343,7 @@ const isElectron = window.electronAPI && window.electronAPI.isElectron;
 // Save game state
 async function saveGame(saveName = 'quicksave') {
     if (!isElectron) {
-        alert('Save system only available in desktop version!');
+        await showCustomAlert('Save system only available in desktop version!', '⚠️');
         return;
     }
     
@@ -1194,7 +1376,7 @@ async function saveGame(saveName = 'quicksave') {
 // Load game state
 async function loadGame(fileName) {
     if (!isElectron) {
-        alert('Save system only available in desktop version!');
+        await showCustomAlert('Save system only available in desktop version!', '⚠️');
         return;
     }
     
@@ -1281,7 +1463,8 @@ function displaySavesList(saves) {
 async function deleteSave(fileName) {
     if (!isElectron) return;
     
-    if (!confirm('Are you sure you want to delete this save?')) {
+    const confirmed = await showCustomConfirm('Are you sure you want to delete this save?', '🗑️');
+    if (!confirmed) {
         return;
     }
     
@@ -1364,6 +1547,207 @@ function showNotification(message, type = 'info') {
     }, 3000);
 }
 
+// Function to play typewriter sound
+function playTypewriterSound() {
+    // Clone and play to allow rapid successive sounds
+    const sound = typewriterSound.cloneNode();
+    sound.volume = 0.3;
+    sound.play().catch(e => {
+        // Silently fail if audio can't play
+        console.log('Audio play prevented:', e);
+    });
+}
+
+// Custom Modal System (replaces browser alerts/confirms)
+function showCustomAlert(message, icon = 'ℹ️') {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('customModal');
+        const modalIcon = document.getElementById('customModalIcon');
+        const modalMessage = document.getElementById('customModalMessage');
+        const modalButtons = document.getElementById('customModalButtons');
+        
+        modalIcon.textContent = icon;
+        modalMessage.textContent = message;
+        modalButtons.innerHTML = '<button class="custom-modal-btn custom-modal-btn-primary" onclick="closeCustomModal()">OK</button>';
+        
+        modal.style.display = 'flex';
+        
+        // Store resolve function for when modal is closed
+        window.customModalResolve = resolve;
+    });
+}
+
+function showCustomConfirm(message, icon = '❓') {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('customModal');
+        const modalIcon = document.getElementById('customModalIcon');
+        const modalMessage = document.getElementById('customModalMessage');
+        const modalButtons = document.getElementById('customModalButtons');
+        
+        modalIcon.textContent = icon;
+        modalMessage.textContent = message;
+        modalButtons.innerHTML = `
+            <button class="custom-modal-btn custom-modal-btn-primary" onclick="closeCustomModal(true)">YES</button>
+            <button class="custom-modal-btn custom-modal-btn-secondary" onclick="closeCustomModal(false)">NO</button>
+        `;
+        
+        modal.style.display = 'flex';
+        
+        // Store resolve function for when modal is closed
+        window.customModalResolve = resolve;
+    });
+}
+
+function closeCustomModal(result = true) {
+    const modal = document.getElementById('customModal');
+    modal.style.display = 'none';
+    
+    if (window.customModalResolve) {
+        window.customModalResolve(result);
+        window.customModalResolve = null;
+    }
+}
+
+// ============================================
+// SETTINGS SYSTEM
+// ============================================
+
+// Skip loading screen
+function skipLoading() {
+    const loadingScreen = document.getElementById('loadingScreen');
+    const mainMenu = document.getElementById('mainMenu');
+    const menuMusic = document.getElementById('menuMusic');
+    
+    // Clear loading interval if it exists
+    if (currentLoadingInterval) {
+        clearInterval(currentLoadingInterval);
+        currentLoadingInterval = null;
+    }
+    
+    loadingScreen.style.display = 'none';
+    mainMenu.style.display = 'flex';
+    
+    setTimeout(() => {
+        mainMenu.style.opacity = '1';
+    }, 50);
+    
+    // Fade in music
+    if (menuMusic) {
+        fadeInMusic(menuMusic, (settings.musicVolume / 100), 1000);
+    }
+}
+
+// Show settings menu
+function showSettings() {
+    const settingsMenu = document.getElementById('settingsMenu');
+    settingsMenu.style.display = 'flex';
+    
+    // Update UI to match current settings
+    document.getElementById('musicVolumeSlider').value = settings.musicVolume;
+    document.getElementById('musicVolumeValue').textContent = settings.musicVolume + '%';
+    
+    document.getElementById('sfxVolumeSlider').value = settings.sfxVolume;
+    document.getElementById('sfxVolumeValue').textContent = settings.sfxVolume + '%';
+    
+    document.getElementById('typingSpeedSelect').value = settings.typingSpeed;
+    updateTypingSpeedLabel(settings.typingSpeed);
+    
+    document.getElementById('skipLoadingToggle').checked = settings.skipLoading;
+    document.getElementById('skipLoadingValue').textContent = settings.skipLoading ? 'ON' : 'OFF';
+}
+
+// Close settings menu
+function closeSettings() {
+    const settingsMenu = document.getElementById('settingsMenu');
+    settingsMenu.style.display = 'none';
+    saveSettings();
+}
+
+// Update music volume
+function updateMusicVolume(value) {
+    settings.musicVolume = parseInt(value);
+    document.getElementById('musicVolumeValue').textContent = value + '%';
+    
+    const menuMusic = document.getElementById('menuMusic');
+    if (menuMusic) {
+        menuMusic.volume = value / 100;
+    }
+}
+
+// Update SFX volume
+function updateSFXVolume(value) {
+    settings.sfxVolume = parseInt(value);
+    document.getElementById('sfxVolumeValue').textContent = value + '%';
+    
+    // Update all sound effect volumes
+    const sfxMultiplier = value / 100;
+    typewriterSound.volume = 0.3 * sfxMultiplier;
+    phoneRingSound.volume = 0.4 * sfxMultiplier;
+    dispatcherGreeting.volume = 0.5 * sfxMultiplier;
+}
+
+// Update typing speed
+function updateTypingSpeed(value) {
+    settings.typingSpeed = parseInt(value);
+    updateTypingSpeedLabel(value);
+}
+
+function updateTypingSpeedLabel(value) {
+    const label = value == 40 ? 'Fast' : value == 80 ? 'Normal' : 'Slow';
+    document.getElementById('typingSpeedValue').textContent = label;
+}
+
+// Update skip loading
+function updateSkipLoading(checked) {
+    settings.skipLoading = checked;
+    document.getElementById('skipLoadingValue').textContent = checked ? 'ON' : 'OFF';
+}
+
+// Reset settings to defaults
+function resetSettings() {
+    settings = {
+        musicVolume: 50,
+        sfxVolume: 50,
+        typingSpeed: 80,
+        skipLoading: false
+    };
+    
+    // Update UI
+    showSettings();
+    
+    // Apply settings
+    updateMusicVolume(50);
+    updateSFXVolume(50);
+    
+    showNotification('Settings reset to defaults', 'success');
+}
+
+// Save settings to localStorage
+function saveSettings() {
+    try {
+        localStorage.setItem('911DispatcherSettings', JSON.stringify(settings));
+        console.log('Settings saved:', settings);
+    } catch (e) {
+        console.error('Failed to save settings:', e);
+    }
+}
+
+// Load settings from localStorage
+function loadSettings() {
+    try {
+        const saved = localStorage.getItem('911DispatcherSettings');
+        if (saved) {
+            settings = JSON.parse(saved);
+            console.log('Settings loaded:', settings);
+            
+            // Apply loaded settings
+            updateSFXVolume(settings.sfxVolume);
+        }
+    } catch (e) {
+        console.error('Failed to load settings:', e);
+    }
+}
+
 // Initialize on page load
 window.addEventListener('DOMContentLoaded', () => {
     const menuMusic = document.getElementById('menuMusic');
@@ -1388,5 +1772,10 @@ window.addEventListener('DOMContentLoaded', () => {
     } else {
         console.log('Running in browser - Save system disabled');
     }
+    
+    // Load saved settings
+    loadSettings();
+    
+    console.log('Typewriter sound effects initialized for caller dialogue');
 });
 
