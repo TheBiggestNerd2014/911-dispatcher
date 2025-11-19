@@ -194,3 +194,8 @@ ipcMain.handle('open-saves-folder', async () => {
     }
 });
 
+// Quit application
+ipcMain.on('quit-app', () => {
+    app.quit();
+});
+

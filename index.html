@@ -34,6 +34,7 @@
             </div>
             <div class="loading-percentage" id="loadingPercentage">0%</div>
             <div class="loading-status" id="loadingStatus">Connecting to emergency database...</div>
+            <button class="skip-loading-btn" id="skipLoadingBtn" onclick="skipLoading()">SKIP ⏩</button>
         </div>
     </div>
 
@@ -45,6 +46,8 @@
         <img src="logo.png" alt="911: Dispatcher Logo">
         <button class="menu-btn" onclick="startGame()">Start Game</button>
         <button class="menu-btn" onclick="showSaveLoadMenu('load')">Load Game</button>
+        <button class="menu-btn" onclick="showSettings()">Settings</button>
+        <button class="menu-btn quit-btn" onclick="quitGame()">Quit Game</button>
         <audio id="menuMusic" loop volume="0.5">
             <source src="Background Music.mp3" type="audio/mpeg">
         </audio>
@@ -192,6 +195,71 @@
                 <button class="menu-btn" id="saveGameBtn" onclick="performSave()" style="display: none;">💾 Save Game</button>
                 <button class="menu-btn secondary-btn" onclick="openSavesFolder()">📁 Open Saves Folder</button>
                 <button class="menu-btn secondary-btn" onclick="closeSaveLoadMenu()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Modal for alerts/confirms -->
+    <div id="customModal" class="custom-modal" style="display: none;">
+        <div class="custom-modal-content">
+            <div class="custom-modal-icon" id="customModalIcon">ℹ️</div>
+            <div class="custom-modal-message" id="customModalMessage"></div>
+            <div class="custom-modal-buttons" id="customModalButtons"></div>
+        </div>
+    </div>
+
+    <!-- Settings Menu -->
+    <div id="settingsMenu" class="settings-menu" style="display: none;">
+        <div class="settings-content">
+            <div class="settings-header">
+                <h2>⚙️ SETTINGS</h2>
+                <button class="close-btn" onclick="closeSettings()">✕</button>
+            </div>
+            
+            <div class="settings-body">
+                <div class="setting-group">
+                    <div class="setting-label">
+                        <span>🎵 Music Volume</span>
+                        <span class="setting-value" id="musicVolumeValue">50%</span>
+                    </div>
+                    <input type="range" id="musicVolumeSlider" min="0" max="100" value="50" class="volume-slider" oninput="updateMusicVolume(this.value)">
+                </div>
+
+                <div class="setting-group">
+                    <div class="setting-label">
+                        <span>🔊 Sound Effects Volume</span>
+                        <span class="setting-value" id="sfxVolumeValue">50%</span>
+                    </div>
+                    <input type="range" id="sfxVolumeSlider" min="0" max="100" value="50" class="volume-slider" oninput="updateSFXVolume(this.value)">
+                </div>
+
+                <div class="setting-group">
+                    <div class="setting-label">
+                        <span>⌨️ Typing Speed</span>
+                        <span class="setting-value" id="typingSpeedValue">Normal</span>
+                    </div>
+                    <select id="typingSpeedSelect" class="setting-select" onchange="updateTypingSpeed(this.value)">
+                        <option value="40">Fast</option>
+                        <option value="80" selected>Normal</option>
+                        <option value="120">Slow</option>
+                    </select>
+                </div>
+
+                <div class="setting-group">
+                    <div class="setting-label">
+                        <span>⏱️ Skip Loading Screen</span>
+                        <span class="setting-value" id="skipLoadingValue">OFF</span>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="skipLoadingToggle" onchange="updateSkipLoading(this.checked)">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="settings-footer">
+                <button class="menu-btn" onclick="resetSettings()">Reset to Defaults</button>
+                <button class="menu-btn" onclick="closeSettings()">Close</button>
             </div>
         </div>
     </div>
