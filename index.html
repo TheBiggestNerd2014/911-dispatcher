@@ -45,6 +45,7 @@
         </video>
         <img src="logo.png" alt="911: Dispatcher Logo">
         <button class="menu-btn" onclick="startGame()">Start Game</button>
+        <button class="menu-btn immersive-toggle" id="immersiveModeBtn" onclick="toggleImmersiveMode()">🎙️ Immersive Mode: <span id="immersiveModeLabel">OFF</span></button>
         <button class="menu-btn" onclick="showSaveLoadMenu('load')">Load Game</button>
         <button class="menu-btn" onclick="showSettings()">Settings</button>
         <button class="menu-btn quit-btn" onclick="quitGame()">Quit Game</button>
@@ -181,19 +182,22 @@
                 <button class="close-btn" onclick="closeSaveLoadMenu()">✕</button>
             </div>
             
-            <div class="save-name-container" id="saveNameContainer" style="display: none;">
-                <input type="text" id="saveNameInput" placeholder="Enter save name..." maxlength="30" />
+            <div id="saveCodeSection" class="save-code-section" style="display: none;">
+                <p class="save-code-hint">Your save code (copy & paste to load later):</p>
+                <div class="save-code-box">
+                    <input type="text" id="saveCodeInput" readonly class="save-code-input" />
+                    <span id="saveCodeDisplay" class="save-code-display"></span>
+                </div>
+                <button class="menu-btn" onclick="copySaveCode()">📋 Copy Code</button>
             </div>
             
-            <div class="saves-container">
-                <div id="savesList" class="saves-list">
-                    <div class="no-saves">Loading saves...</div>
-                </div>
+            <div id="loadCodeSection" class="load-code-section">
+                <p class="save-code-hint">Paste your save code below:</p>
+                <input type="text" id="loadCodeInput" class="save-code-input" placeholder="e.g. 1000345" maxlength="20" />
+                <button class="menu-btn" onclick="loadGame()">📂 Load Game</button>
             </div>
             
             <div class="save-load-footer">
-                <button class="menu-btn" id="saveGameBtn" onclick="performSave()" style="display: none;">💾 Save Game</button>
-                <button class="menu-btn secondary-btn" onclick="openSavesFolder()">📁 Open Saves Folder</button>
                 <button class="menu-btn secondary-btn" onclick="closeSaveLoadMenu()">Cancel</button>
             </div>
         </div>
@@ -255,6 +259,7 @@
                         <span class="toggle-slider"></span>
                     </label>
                 </div>
+
             </div>
 
             <div class="settings-footer">

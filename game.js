@@ -32,7 +32,9 @@ let settings = {
     musicVolume: 50,
     sfxVolume: 50,
     typingSpeed: 80,
-    skipLoading: false
+    skipLoading: false,
+    immersiveMode: false,
+    immersiveVoice: 'auto'
 };
 
 // Track loading interval for skip functionality
@@ -657,22 +659,29 @@ async function askQuestion(type) {
     // Wait a moment
     await new Promise(resolve => setTimeout(resolve, 500));
     
-    // Type only the response character by character
-    for (let i = 0; i < response.length; i++) {
-        const char = response.charAt(i);
-        dialogueElement.textContent += char;
-        playTypewriterSound(); // Play sound for each character
-        
-        // Check if this is the end of a sentence
-        const isSentenceEnd = (char === '.' || char === '!' || char === '?') && 
-                              (i === response.length - 1 || response.charAt(i + 1) === ' ');
-        
-        if (isSentenceEnd) {
-            // Longer pause after sentence
-            await new Promise(resolve => setTimeout(resolve, 500));
-        } else {
-            // Normal typing speed
-            await new Promise(resolve => setTimeout(resolve, 80));
+    // Caller's response - use TTS in immersive mode
+    if (settings.immersiveMode && isTTSAvailable()) {
+        const typingSpeed = 35;
+        const ttsPromise = speakDistressed(response, {});
+        const typingPromise = (async () => {
+            for (let i = 0; i < response.length; i++) {
+                const char = response.charAt(i);
+                dialogueElement.textContent += char;
+                playTypewriterSound();
+                const isSentenceEnd = (char === '.' || char === '!' || char === '?') && 
+                                      (i === response.length - 1 || response.charAt(i + 1) === ' ');
+                await new Promise(r => setTimeout(r, isSentenceEnd ? 300 : typingSpeed));
+            }
+        })();
+        await Promise.all([ttsPromise, typingPromise]);
+    } else {
+        for (let i = 0; i < response.length; i++) {
+            const char = response.charAt(i);
+            dialogueElement.textContent += char;
+            playTypewriterSound();
+            const isSentenceEnd = (char === '.' || char === '!' || char === '?') && 
+                                  (i === response.length - 1 || response.charAt(i + 1) === ' ');
+            await new Promise(resolve => setTimeout(resolve, isSentenceEnd ? 500 : 80));
         }
     }
     
@@ -759,8 +768,20 @@ async function pickUpPhone() {
     // Wait a moment before caller responds
     await new Promise(resolve => setTimeout(resolve, 800));
     
-    // Type caller's dialogue (append, don't clear)
-    await typeText(dialogueElement, `"${currentCall.dialogue}"`, settings.typingSpeed, false);
+    // Caller's dialogue - use TTS in immersive mode for realistic distressed voice
+    const dialogueText = `"${currentCall.dialogue}"`;
+    if (settings.immersiveMode && isTTSAvailable()) {
+        // Run TTS and fast typing in parallel for immersive experience
+        const typingSpeed = 35; // Faster to roughly match speech
+        const ttsPromise = speakDistressed(currentCall.dialogue, {
+            onStart: () => {},
+            onEnd: () => {}
+        });
+        const typingPromise = typeText(dialogueElement, dialogueText, typingSpeed, false);
+        await Promise.all([ttsPromise, typingPromise]);
+    } else {
+        await typeText(dialogueElement, dialogueText, settings.typingSpeed, false);
+    }
     
     // Show question buttons and enable dispatch
     document.getElementById('questionButtons').style.display = 'grid';
@@ -1004,6 +1025,7 @@ function submitDispatch() {
 }
 
 function closeCall() {
+    stopDistressedTTS(); // Cancel any ongoing TTS
     currentCall = null;
     selectedUnits = [];
     typingInProgress = false;
@@ -1078,6 +1100,7 @@ function backToMenu() {
     document.getElementById('gameOverScreen').style.display = 'none';
     const mainMenu = document.getElementById('mainMenu');
     mainMenu.style.display = 'flex';
+    updateImmersiveModeButton();
     mainMenu.style.opacity = '1'; // Ensure menu is visible
     closeCall();
     
@@ -1256,6 +1279,7 @@ function startLoadingSequence() {
                         // Fade in menu
                         setTimeout(() => {
                             mainMenu.style.opacity = '1';
+                            updateImmersiveModeButton();
                         }, 50);
                         
                         // Fade in music to full volume over 3 seconds
@@ -1334,163 +1358,100 @@ function fadeOutMusic(audioElement, duration) {
 }
 
 // ============================================
-// SAVE/LOAD SYSTEM FOR ELECTRON
+// SAVE/LOAD SYSTEM - CODE BASED
 // ============================================
+// Each character in the save code represents encoded game data.
+// Format: VSSSCCD (7 chars)
+// V = version (1)
+// SSS = score in base36 (3 chars, 0-46655)
+// C = callsCompleted (0-9, a=10)
+// C = correctDispatches (0-9, a=10)
+// D = totalDispatches (0-9, a=10)
 
-// Check if running in Electron
+const SAVE_CHARSET = '0123456789abcdefghijklmnopqrstuvwxyz'; // base36
+
+function encodeSaveCode() {
+    const v = '1'; // version
+    const s = toBase36(score, 3); // score, 3 chars
+    const c = toBase36(callsCompleted, 1); // callsCompleted
+    const d1 = toBase36(correctDispatches, 1); // correctDispatches
+    const d2 = toBase36(totalDispatches, 1); // totalDispatches
+    return v + s + c + d1 + d2; // 7 chars total
+}
+
+function toBase36(num, width) {
+    num = Math.max(0, Math.floor(num));
+    let s = '';
+    do {
+        s = SAVE_CHARSET[num % 36] + s;
+        num = Math.floor(num / 36);
+    } while (num > 0);
+    return s.padStart(width, '0').slice(-width);
+}
+
+function fromBase36(str) {
+    let n = 0;
+    for (let i = 0; i < str.length; i++) {
+        const idx = SAVE_CHARSET.indexOf(str[i].toLowerCase());
+        if (idx < 0) return null;
+        n = n * 36 + idx;
+    }
+    return n;
+}
+
+function decodeSaveCode(code) {
+    if (!code || typeof code !== 'string') return null;
+    code = code.trim().toLowerCase().replace(/[\s\-]/g, '');
+    if (code.length < 7) return null;
+    const v = code[0];
+    if (v !== '1') return null; // unsupported version
+    const score = fromBase36(code.slice(1, 4));
+    const callsCompleted = fromBase36(code[4]);
+    const correctDispatches = fromBase36(code[5]);
+    const totalDispatches = fromBase36(code[6]);
+    if (score === null || callsCompleted === null || correctDispatches === null || totalDispatches === null) return null;
+    if (callsCompleted > 10 || correctDispatches > 10 || totalDispatches > 10) return null;
+    return { score, callsCompleted, correctDispatches, totalDispatches };
+}
+
+// Check if running in Electron (for quit, etc.)
 const isElectron = window.electronAPI && window.electronAPI.isElectron;
 
-// Save game state
-async function saveGame(saveName = 'quicksave') {
-    if (!isElectron) {
-        await showCustomAlert('Save system only available in desktop version!', '⚠️');
+// Generate save code and copy to clipboard
+function saveGame() {
+    const code = encodeSaveCode();
+    const codeInput = document.getElementById('saveCodeInput');
+    const codeDisplay = document.getElementById('saveCodeDisplay');
+    if (codeInput) {
+        codeInput.value = code;
+        codeInput.select();
+        try { navigator.clipboard.writeText(code); } catch (e) {}
+    }
+    if (codeDisplay) codeDisplay.textContent = code;
+    showNotification('Save code copied! Paste it to load later.', 'success');
+}
+
+// Load game from pasted code
+function loadGame() {
+    const codeInput = document.getElementById('loadCodeInput');
+    const code = codeInput ? codeInput.value.trim() : '';
+    const saveData = decodeSaveCode(code);
+    
+    if (!saveData) {
+        showNotification('Invalid save code. Check the code and try again.', 'error');
         return;
     }
     
-    const saveData = {
-        saveName: saveName,
-        score: score,
-        callsCompleted: callsCompleted,
-        correctDispatches: correctDispatches,
-        totalDispatches: totalDispatches,
-        lives: 3, // Add lives tracking if needed
-        timestamp: new Date().toISOString(),
-        version: '1.0.0'
-    };
+    score = saveData.score;
+    callsCompleted = saveData.callsCompleted;
+    correctDispatches = saveData.correctDispatches;
+    totalDispatches = saveData.totalDispatches;
     
-    try {
-        const result = await window.electronAPI.saveGame(saveData);
-        
-        if (result.success) {
-            showNotification(`Game saved successfully! (${result.fileName})`, 'success');
-            console.log('Game saved:', result.path);
-        } else {
-            showNotification(`Save failed: ${result.error}`, 'error');
-        }
-    } catch (error) {
-        console.error('Save error:', error);
-        showNotification('Failed to save game', 'error');
-    }
-}
-
-// Load game state
-async function loadGame(fileName) {
-    if (!isElectron) {
-        await showCustomAlert('Save system only available in desktop version!', '⚠️');
-        return;
-    }
-    
-    try {
-        const result = await window.electronAPI.loadGame(fileName);
-        
-        if (result.success) {
-            const saveData = result.data;
-            
-            // Restore game state
-            score = saveData.score || 0;
-            callsCompleted = saveData.callsCompleted || 0;
-            correctDispatches = saveData.correctDispatches || 0;
-            totalDispatches = saveData.totalDispatches || 0;
-            
-            // Update UI
-            updateScore();
-            
-            showNotification('Game loaded successfully!', 'success');
-            console.log('Game loaded from:', fileName);
-            
-            // Close load menu and start game
-            closeSaveLoadMenu();
-            if (!gameActive) {
-                startGame();
-            }
-        } else {
-            showNotification(`Load failed: ${result.error}`, 'error');
-        }
-    } catch (error) {
-        console.error('Load error:', error);
-        showNotification('Failed to load game', 'error');
-    }
-}
-
-// List all save files
-async function refreshSavesList() {
-    if (!isElectron) return;
-    
-    try {
-        const result = await window.electronAPI.listSaves();
-        
-        if (result.success) {
-            displaySavesList(result.saves);
-        } else {
-            console.error('Failed to list saves:', result.error);
-        }
-    } catch (error) {
-        console.error('Error listing saves:', error);
-    }
-}
-
-// Display saves in the UI
-function displaySavesList(saves) {
-    const savesList = document.getElementById('savesList');
-    if (!savesList) return;
-    
-    if (saves.length === 0) {
-        savesList.innerHTML = '<div class="no-saves">No save games found</div>';
-        return;
-    }
-    
-    savesList.innerHTML = saves.map((save, index) => {
-        const date = new Date(save.date).toLocaleString();
-        return `
-            <div class="save-item">
-                <div class="save-info">
-                    <div class="save-name">${save.saveName}</div>
-                    <div class="save-stats">
-                        Score: ${save.score} | Calls: ${save.callsCompleted} | Lives: ${save.lives}
-                    </div>
-                    <div class="save-date">${date}</div>
-                </div>
-                <div class="save-actions">
-                    <button class="save-action-btn load-btn" onclick="loadGame('${save.fileName}')">LOAD</button>
-                    <button class="save-action-btn delete-btn" onclick="deleteSave('${save.fileName}')">DELETE</button>
-                </div>
-            </div>
-        `;
-    }).join('');
-}
-
-// Delete a save file
-async function deleteSave(fileName) {
-    if (!isElectron) return;
-    
-    const confirmed = await showCustomConfirm('Are you sure you want to delete this save?', '🗑️');
-    if (!confirmed) {
-        return;
-    }
-    
-    try {
-        const result = await window.electronAPI.deleteSave(fileName);
-        
-        if (result.success) {
-            showNotification('Save deleted', 'success');
-            refreshSavesList();
-        } else {
-            showNotification(`Delete failed: ${result.error}`, 'error');
-        }
-    } catch (error) {
-        console.error('Delete error:', error);
-        showNotification('Failed to delete save', 'error');
-    }
-}
-
-// Open saves folder in file explorer
-async function openSavesFolder() {
-    if (!isElectron) return;
-    
-    try {
-        await window.electronAPI.openSavesFolder();
-    } catch (error) {
-        console.error('Failed to open saves folder:', error);
+    updateHUD();
+    showNotification('Game loaded successfully!', 'success');
+    closeSaveLoadMenu();
+    if (!gameActive) {
+        startGame();
     }
 }
 
@@ -1498,8 +1459,8 @@ async function openSavesFolder() {
 function showSaveLoadMenu(mode = 'load') {
     const menu = document.getElementById('saveLoadMenu');
     const title = document.getElementById('saveLoadTitle');
-    const saveNameContainer = document.getElementById('saveNameContainer');
-    const saveGameBtn = document.getElementById('saveGameBtn');
+    const saveSection = document.getElementById('saveCodeSection');
+    const loadSection = document.getElementById('loadCodeSection');
     
     if (!menu) return;
     
@@ -1507,15 +1468,20 @@ function showSaveLoadMenu(mode = 'load') {
     
     if (mode === 'save') {
         title.textContent = 'SAVE GAME';
-        saveNameContainer.style.display = 'block';
-        saveGameBtn.style.display = 'block';
+        if (saveSection) saveSection.style.display = 'block';
+        if (loadSection) loadSection.style.display = 'none';
+        const code = encodeSaveCode();
+        const codeInput = document.getElementById('saveCodeInput');
+        const codeDisplay = document.getElementById('saveCodeDisplay');
+        if (codeInput) codeInput.value = code;
+        if (codeDisplay) codeDisplay.textContent = code;
     } else {
         title.textContent = 'LOAD GAME';
-        saveNameContainer.style.display = 'none';
-        saveGameBtn.style.display = 'none';
+        if (saveSection) saveSection.style.display = 'none';
+        if (loadSection) loadSection.style.display = 'block';
+        const loadInput = document.getElementById('loadCodeInput');
+        if (loadInput) loadInput.value = '';
     }
-    
-    refreshSavesList();
 }
 
 // Close save/load menu
@@ -1526,12 +1492,14 @@ function closeSaveLoadMenu() {
     }
 }
 
-// Perform save with custom name
-function performSave() {
-    const saveNameInput = document.getElementById('saveNameInput');
-    const saveName = saveNameInput.value.trim() || 'quicksave';
-    saveGame(saveName);
-    saveNameInput.value = '';
+// Copy save code to clipboard
+function copySaveCode() {
+    const codeInput = document.getElementById('saveCodeInput');
+    if (codeInput) {
+        codeInput.select();
+        try { navigator.clipboard.writeText(codeInput.value); } catch (e) {}
+        showNotification('Save code copied to clipboard!', 'success');
+    }
 }
 
 // Show notification
@@ -1547,13 +1515,12 @@ function showNotification(message, type = 'info') {
     }, 3000);
 }
 
-// Function to play typewriter sound
+// Function to play typewriter sound (skipped in immersive mode)
 function playTypewriterSound() {
-    // Clone and play to allow rapid successive sounds
+    if (settings.immersiveMode) return;
     const sound = typewriterSound.cloneNode();
     sound.volume = 0.3;
     sound.play().catch(e => {
-        // Silently fail if audio can't play
         console.log('Audio play prevented:', e);
     });
 }
@@ -1629,6 +1596,7 @@ function skipLoading() {
     
     setTimeout(() => {
         mainMenu.style.opacity = '1';
+        updateImmersiveModeButton();
     }, 50);
     
     // Fade in music
@@ -1703,13 +1671,149 @@ function updateSkipLoading(checked) {
     document.getElementById('skipLoadingValue').textContent = checked ? 'ON' : 'OFF';
 }
 
+// ============================================
+// IMMERSIVE MODE - DISTRESSED TTS
+// ============================================
+
+// Check if TTS is available
+function isTTSAvailable() {
+    return 'speechSynthesis' in window;
+}
+
+// Get available voices (loads asynchronously in Chrome)
+function getAvailableVoices() {
+    return new Promise((resolve) => {
+        let voices = speechSynthesis.getVoices();
+        if (voices.length > 0) {
+            resolve(voices);
+            return;
+        }
+        speechSynthesis.onvoiceschanged = () => {
+            resolve(speechSynthesis.getVoices());
+        };
+        // Fallback: Chrome sometimes needs a delay
+        setTimeout(() => resolve(speechSynthesis.getVoices()), 100);
+    });
+}
+
+// Pick best voice for distressed caller - prefer natural/human-sounding
+function selectDistressedVoice(voices) {
+    const enVoices = voices.filter(v => v.lang.startsWith('en'));
+    if (enVoices.length === 0) return voices[0] || null;
+    
+    // Prefer "Google" or "Microsoft" voices - they often sound more natural
+    const preferred = enVoices.find(v => 
+        v.name.includes('Google') || v.name.includes('Microsoft') || 
+        v.name.includes('Natural') || v.name.includes('Premium')
+    );
+    if (preferred) return preferred;
+    
+    // Prefer "female" for variety - often more expressive for distress
+    const female = enVoices.find(v => v.name.toLowerCase().includes('female') || v.name.includes('Samantha'));
+    if (female) return female;
+    
+    return enVoices[0];
+}
+
+// Speak text with distressed/panicked delivery
+function speakDistressed(text, { onStart, onEnd } = {}) {
+    if (!isTTSAvailable()) {
+        if (onEnd) onEnd();
+        return Promise.resolve();
+    }
+    
+    return new Promise(async (resolve) => {
+        const voices = await getAvailableVoices();
+        const voice = settings.immersiveVoice === 'auto' 
+            ? selectDistressedVoice(voices) 
+            : voices.find(v => v.name === settings.immersiveVoice) || selectDistressedVoice(voices);
+        
+        // Split text into chunks for natural breathing pauses (distressed people speak in bursts)
+        let segments;
+        try {
+            const chunks = text.split(/(?<=[!?.])\s+/g).map(c => c.trim()).filter(c => c.length > 0);
+            segments = chunks.length > 1 ? chunks : [text];
+        } catch (e) {
+            segments = [text]; // Fallback if regex fails
+        }
+        
+        let currentIndex = 0;
+        
+        function speakNext() {
+            if (currentIndex >= segments.length) {
+                if (onEnd) onEnd();
+                resolve();
+                return;
+            }
+            
+            const segment = segments[currentIndex].trim();
+            if (!segment) {
+                currentIndex++;
+                speakNext();
+                return;
+            }
+            
+            const utterance = new SpeechSynthesisUtterance(segment);
+            utterance.voice = voice;
+            utterance.rate = 1.35;  // Faster - urgency, panic
+            utterance.pitch = 1.35;  // Higher - stress, distress
+            utterance.volume = Math.min(1, (settings.sfxVolume / 100) * 1.3);  // Match SFX volume, slightly louder for emphasis
+            
+            if (currentIndex === 0 && onStart) onStart();
+            
+            utterance.onend = () => {
+                currentIndex++;
+                // Small pause between segments (breathing)
+                if (currentIndex < segments.length) {
+                    setTimeout(speakNext, 150 + Math.random() * 100);
+                } else {
+                    if (onEnd) onEnd();
+                    resolve();
+                }
+            };
+            
+            utterance.onerror = () => {
+                currentIndex++;
+                speakNext();
+            };
+            
+            speechSynthesis.speak(utterance);
+        }
+        
+        speakNext();
+    });
+}
+
+// Stop any ongoing TTS
+function stopDistressedTTS() {
+    if (isTTSAvailable()) {
+        speechSynthesis.cancel();
+    }
+}
+
+// Toggle immersive mode (main menu button)
+function toggleImmersiveMode() {
+    settings.immersiveMode = !settings.immersiveMode;
+    updateImmersiveModeButton();
+}
+
+// Update main menu immersive mode button label
+function updateImmersiveModeButton() {
+    const label = document.getElementById('immersiveModeLabel');
+    const btn = document.getElementById('immersiveModeBtn');
+    if (label) label.textContent = settings.immersiveMode ? 'ON' : 'OFF';
+    if (btn) btn.classList.toggle('immersive-active', settings.immersiveMode);
+}
+
 // Reset settings to defaults
 function resetSettings() {
     settings = {
         musicVolume: 50,
         sfxVolume: 50,
         typingSpeed: 80,
-        skipLoading: false
+        skipLoading: false,
+        immersiveMode: false,
+        immersiveVoice: 'auto'
     };
     
     // Update UI
@@ -1742,6 +1846,8 @@ function loadSettings() {
             
             // Apply loaded settings
             updateSFXVolume(settings.sfxVolume);
+            if (settings.immersiveMode === undefined) settings.immersiveMode = false;
+            if (settings.immersiveVoice === undefined) settings.immersiveVoice = 'auto';
         }
     } catch (e) {
         console.error('Failed to load settings:', e);
@@ -1775,6 +1881,9 @@ window.addEventListener('DOMContentLoaded', () => {
     
     // Load saved settings
     loadSettings();
+    
+    // Update immersive button state when menu is shown
+    updateImmersiveModeButton();
     
     console.log('Typewriter sound effects initialized for caller dialogue');
 });
